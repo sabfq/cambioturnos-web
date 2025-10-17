@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Cambio de Turnos</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    input, button, select { margin: 5px; padding: 5px; }
+    table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>Cambio de Turnos</h1>
+
+  <div id="loginDiv">
+    <h2>Acceder</h2>
+    <input type="text" id="matricula" placeholder="Matrícula">
+    <input type="text" id="nombre" placeholder="Nombre">
+    <input type="text" id="apellidos" placeholder="Apellidos">
+    <button onclick="login()">Entrar</button>
+  </div>
+
+  <div id="mainDiv" style="display:none;">
+    <h2>Crear Oferta</h2>
+    <input type="text" id="turno" placeholder="Turno (ej: Mañana)">
+    <input type="date" id="fecha">
+    <select id="tipoDia">
+      <option value="laborable">Laborable</option>
+      <option value="festivo">Festivo</option>
+    </select>
+    <button onclick="crearOfertaUI()">Crear Oferta</button>
+
+    <h2>Ofertas Disponibles</h2>
+    <table id="tablaOfertas">
+      <thead>
+        <tr>
+          <th>Turno</th>
+          <th>Fecha</th>
+          <th>Tipo de Día</th>
+          <th>Ofrecido por</th>
+          <th>Aceptado por</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    // Import Firebase
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+
+    // Configuración Firebase (tuya)
+    const firebaseConfig = {
+      apiKey: "AIzaSyDFK-RvM3hX29e7BJmVcL3iKK_mkrRtK30",
+      authDomain: "cambioturnos-e3c55.firebaseapp.com",
+      projectId: "cambioturnos-e3c55",
+      storageBucket: "cambioturnos-e3c55.firebasestorage.app",
+      messagingSenderId: "435343505577",
+      appId: "1:435343505577:web:b060f63475675dcc3311b8"
+    };
+
+    // Inicializar Firebase y Firestore
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const ofertasCollection = collection(db, "ofertas");
+
+    let usuarioActual = null;
+
+    // ===== LOGIN =====
+    function login() {
+      const matricula = document.getElementById('matricula').value.trim();
+      const nombre = document.getElementById('nombre').value.trim();
+      const apellidos = document.getElementById('apellidos').value.trim();
+
+      if (!matricula || !nombre || !apellidos) {
+        alert("Rellena todos los campos");
+        return;
+      }
+
+      usuarioActual = { matricula, nombre, apellidos };
+      document.getElementById('loginDiv').style.display = 'none';
+      document.getElementById('mainDiv').style.display = 'block';
+
+      cargarOfertas();
+    }
+
+    // ===== CREAR OFERTA =====
+    async function crearOfertaUI() {
+      if (!usuarioActual) return;
+
+      const turno = document.getElementById('turno').value.trim();
+      const fecha = document.getElementById('fecha').value;
+      const tipoDia = document.getElementById('tipoDia').value;
+
+      if (!turno || !fecha) {
+        alert("Rellena todos los campos");
+        return;
+      }
+
+      const hoy = new Date();
+      const fechaOferta = new Date(fecha);
+      const diff = (fechaOferta - hoy) / (1000*60*60*24);
+
+      if ((tipoDia === 'laborable' && (diff < -7 || diff > 7)) ||
+          (tipoDia === 'festivo' && (diff < -3 || diff > 3))) {
+        alert(`El margen máximo es ${tipoDia==='laborable'?7:3} días`);
+        return;
+      }
+
+      await addDoc(ofertasCollection, {
+        matricula: usuarioActual.matricula,
+        nombre: usuarioActual.nombre,
+        apellidos: usuarioActual.apellidos,
+        turno,
+        fecha,
+        tipoDia,
+        aceptadoPor: null
+      });
+
+      document.getElementById('turno').value = '';
+      cargarOfertas();
+    }
+
+    // ===== CARGAR OFERTAS =====
+    async function cargarOfertas() {
+      const querySnapshot = await getDocs(ofertasCollection);
+      const tbody = document.querySelector('#tablaOfertas tbody');
+      tbody.innerHTML = '';
+
+      querySnapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td>${data.turno}</td>
+          <td>${data.fecha}</td>
+          <td>${data.tipoDia}</td>
+          <td>${data.nombre} ${data.apellidos} (${data.matricula})</td>
+          <td>${data.aceptadoPor || ''}</td>
+          <td>
+            ${!data.aceptadoPor && data.matricula !== usuarioActual.matricula ? `<button onclick="aceptarOferta('${docSnap.id}')">Aceptar</button>` : ''}
+            ${data.matricula === usuarioActual.matricula ? `<button onclick="cancelarOferta('${docSnap.id}')">Cancelar</button>` : ''}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ===== ACEPTAR OFERTA =====
+    async function aceptarOferta(id) {
+      await updateDoc(doc(db, "ofertas", id), { aceptadoPor: `${usuarioActual.nombre} ${usuarioActual.apellidos}` });
+      cargarOfertas();
+    }
+
+    // ===== CANCELAR OFERTA =====
+    async function cancelarOferta(id) {
+      await deleteDoc(doc(db, "ofertas", id));
+      cargarOfertas();
+    }
+  </script>
+</body>
+</html>
